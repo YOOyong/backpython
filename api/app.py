@@ -1,102 +1,48 @@
-from typing import Any
 from flask import Flask, jsonify ,request
 from flask.json import JSONEncoder
+from sqlalchemy import create_engine, text
 
-app = Flask(__name__) # flask의 웹 애플리케이션
-app.id_count = 1
-app.users = {}
-app.tweets = []
+# 이 안에 엔드포인트들을 구현한다.
+# create_app을 팩토리함수로 자동으로 인식하여 flask를 실행시킨다.
+def create_app(test_config = None):
+    app = Flask(__name__)
 
+    if test_config is None:
+        app.config.from_pyfile('config.py')
+    else:
+        app.config.update(test_config)
 
-class CustomJSONEncoder(JSONEncoder):
-    """
-    default json encoder는 set을 json으로 변환할 수 없음.
-    custom encoder 를 작성하여 set 을 list로 변환한다.
-    """
-    def default(self,obj):
-        if isinstance(obj, set):
-            return list(obj)
-        return super().default(obj)
+    database = create_engine(app.config['DB_URL'], encoding = 'utf-8', max_overflow = 0)
+    app.database = database # Flask 객체를 넣어줌. 외부에서도 사용 가능
 
-app.json_encoder = CustomJSONEncoder
-
-@app.route("/ping", methods = ['GET']) # flask는 route decorator로 endpoint 를 등록함
-def ping():
-    return 'pong'
-
-
-@app.route("/signup", methods = ['POST'])
-def sign_up():
-    new_user = request.json
-    new_user['id'] = app.id_count
-    app.users[app.id_count] = new_user
-    app.id_count  += 1
-
-    return jsonify(new_user)
-
-@app.route('/tweet', methods = ['POST'])
-def tweet():
-    new_tweet = request.json
-
-    if int(new_tweet['id']) not in app.users:
-        return '사용자 없음', 400 
-
-    if len(new_tweet['tweet']) > 300:
-        return '300 자를 초과', 400
-
-    app.tweets.append({
-        "user_id" : new_tweet['id'],
-        "tweet" : new_tweet['tweet']
-    })
-
-    return '', 200
+    @app.route('/signup', methods = ['POST'])
+    def signup():
+        new_user = request.json
+        new_user_id = app.database.execute(text("""
+                            insert into users (
+                                name, email, profile, hashed_password
+                            ) values (
+                                :name,
+                                :email,
+                                :profile,
+                                :password
+                            )"""), new_user).lastrowid
+        
+        row = app.database.execute(text("""
+        select * from users
+        where id = :id
+        """), {'id' : new_user_id}).fetchone()
 
 
-@app.route('/follow', methods = ['POST'])
-def follow():
-    payload = request.json
+        created_user_id = {
+            'id' : row['id'],
+            'name' : row['name'],
+            'email' : row['email'],
+            'profile' : row['profile']
+        } if row else None
 
-    req_user_id = int(payload["id"])
-    followed_user_id = int(payload["follow"])
+        return jsonify(created_user_id)
 
-    if req_user_id not in app.users or followed_user_id not in app.users:
-        return "없는 유저입니다.", 400
-    
-    user : dict= app.users[req_user_id]
-    user.setdefault('follow', set()).add(followed_user_id)
-
-    return jsonify(user)
+    return app
 
 
-@app.route('/unfollow', methods = ['POST'])
-def unfollow():
-    payload = request.json
-
-    req_user_id = int(payload["id"])
-    unfollowed_user_id = int(payload["follow"])
-
-    if req_user_id not in app.users or unfollowed_user_id not in app.users:
-        return "없는 유저입니다.", 400
-    
-    user : dict = app.users[req_user_id]
-    user.setdefault('follow', set()).discard(unfollowed_user_id)
-
-    return jsonify(user)
-
-
-@app.route('/timeline/<int:user_id>', methods = ['GET'])
-def timeline(user_id):
-    if user_id not in app.users:
-        return '유저 없음', 400
-    
-    user = app.users[user_id]
-    follow_list: set = user.get('follow', set()) # dict key를 찾는데 없으면 empty set
-    follow_list.add(user_id)
-    timeline = [tweet for tweet in app.tweets if tweet['user_id'] in follow_list]
-
-    response = {
-        "user_id" : user_id,
-        "timeline" : timeline
-    }
-
-    return jsonify(response)
