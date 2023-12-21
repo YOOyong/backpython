@@ -82,6 +82,43 @@ def create_app(test_config = None):
 
         return jsonify(timeline)
 
+    @app.route('/follow', methods = ['POST'])
+    def follow():
+        following = request.json
+
+        if not app.database.execute(text("select * from users where id = :id"),\
+                                     {'id': following['id']}).fetchone() \
+            or not app.database.execute(text("select * from users where id = :id"),{'id' : following['follow']}).fetchone():
+            return '없는 유저입니다.' , 400
+
+        app.database.execute(text("""
+            insert into users_follow_list (user_id, follow_user_id)
+            values(:id, :follow)
+            """
+        ), following)
+
+
+        return '', 200
+    
+    @app.route('/unfollow', methods = ['POST'])
+    def unfollow():
+        requests = request.json
+
+        if not app.database.execute(text("select * from users where id = :id"),\
+                                     {'id': requests['id']}).fetchone() \
+            or not app.database.execute(text("select * from users where id = :id"),{'id' : requests['unfollow']}).fetchone():
+            return '없는 유저입니다.' , 400
+
+        app.database.execute(text("""
+            delete from users_follow_list
+            where user_id = :id
+            and follow_user_id = :unfollow
+            """
+        ), requests)
+
+
+        return '', 200
+
 
     return app
 
