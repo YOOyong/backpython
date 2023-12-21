@@ -43,6 +43,47 @@ def create_app(test_config = None):
 
         return jsonify(created_user_id)
 
+    @app.route('/tweet', methods = ['POST'])
+    def tweet():
+        new_tweet = request.json
+        
+        if not app.database.execute(text("select * from users where id = :id"),\
+                                     {'id': new_tweet['id']}).fetchone():
+            return '없는 유저입니다.' , 400
+
+        if len(new_tweet['tweet']) > 300:
+            return '300 자를 초과', 400
+
+
+        app.database.execute(text("""
+            insert into tweets (user_id, tweet)
+                values (:id, :tweet)                           
+        """), new_tweet)
+
+        return '', 200
+    
+
+    @app.route('/timeline/<int:user_id>', methods = ['GET'])
+    def timeline(user_id):
+        rows = app.database.execute(text("""
+            select t.user_id, t.tweet
+            from tweets t
+            left join users_follow_list ufl on ufl.user_id = :id
+            where t.user_id = :id
+            or t.user_id = ufl.follow_user_id
+        """), {'id' : user_id}).fetchall()
+
+        timeline = [
+            {
+                'user_id' : row['user_id'],
+                'tweet' : row['tweet']
+            } for row in rows
+        ]
+
+        return jsonify(timeline)
+
+
     return app
 
 
+    
