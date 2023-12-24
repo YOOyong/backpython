@@ -1,6 +1,10 @@
 from flask import Flask, jsonify ,request, current_app
 from flask.json import JSONEncoder
 from sqlalchemy import create_engine, text
+import bcrypt
+import jwt
+from datetime import datetime , timedelta
+
 
 class CustomJSONEndocer(JSONEncoder):
     def default(self, obj):
@@ -8,6 +12,8 @@ class CustomJSONEndocer(JSONEncoder):
             return list(obj)
         return super().default(obj)
 
+def hash_password(password):
+    return bcrypt.hashpw(password.encode('UTF-8'),bcrypt.gensalt())
 
 def get_user(user_id):
     user = current_app.database.execute(text("""
@@ -81,9 +87,41 @@ def create_app(test_config = None):
     @app.route('/signup', methods = ['POST'])
     def signup():
         new_user = request.json
+        # password 암호화
+        new_user['password'] = hash_password(new_user['password'])
+
         new_user_id = insert_user(new_user)
-        created_user_id = get_user(new_user_id)
-        return jsonify(created_user_id)
+        new_user_info = get_user(new_user_id)
+        return jsonify(new_user_info)
+
+    @app.route('/login', methods =['POST']) 
+    def login():
+        requests = request.json
+
+        # get password
+        user = app.database.execute(text("""
+            select id, hashed_password
+            from users
+            where email = :email
+        """), {'email': requests['email']}).fetchone()
+
+        if user and bcrypt.checkpw(requests['password'].encode('UTF-8'), user['hashed_password'].encode('UTF-8')):
+            user_id = user['id']
+            payload = {
+                'user_id' : user_id,
+                'exp' : datetime.utcnow() + timedelta(seconds = 60 * 60 * 24)
+            }
+
+            token = jwt.encode(payload, app.config['JWT_SECRET_KEY'], 'HS256')
+            return jsonify({
+                'access_token': token
+            })
+
+        else: return '', 401
+
+
+
+
 
     @app.route('/tweet', methods = ['POST'])
     def tweet():
