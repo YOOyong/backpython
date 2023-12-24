@@ -1,5 +1,6 @@
-from flask import Flask, jsonify ,request, current_app
+from flask import Flask, jsonify ,request, current_app, Response, g
 from flask.json import JSONEncoder
+from functools import wraps
 from sqlalchemy import create_engine, text
 import bcrypt
 import jwt
@@ -15,6 +16,27 @@ class CustomJSONEndocer(JSONEncoder):
 def hash_password(password):
     return bcrypt.hashpw(password.encode('UTF-8'),bcrypt.gensalt())
 
+
+def login_required(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        access_token = request.headers.get('Authorization')
+        if access_token is not None:
+            try:
+                payload = jwt.decode(access_token, current_app.config['JWT_SECRET_KEY'], 'HS256')
+            except jwt.InvalidTokenError:
+                return Response(status=401)
+
+            user_id = payload['user_id']
+            g.user_id = user_id #g 는 flask의 전역공간.
+            g.user = get_user(user_id) if user_id else None
+        else:
+            return Response(status = 401)
+            
+        return func(*args, **kwargs)
+
+    return wrapper
+
 def get_user(user_id):
     user = current_app.database.execute(text("""
         select id, name, email, profile
@@ -27,6 +49,15 @@ def get_user(user_id):
             'email': user['email'],
             'profile': user['profile']
             } if user else None
+
+def get_user_id_password(email):
+    row = current_app.database.execute(text("""
+    select id, hashed_password
+    from users
+    where email = :email
+    """), {'email' : email}).fetchone()
+
+    return { 'id' : row['id'], 'hashed_password' : row['hashed_password']} if row else None
 
 
 def insert_tweet(new_tweet):
@@ -99,11 +130,7 @@ def create_app(test_config = None):
         requests = request.json
 
         # get password
-        user = app.database.execute(text("""
-            select id, hashed_password
-            from users
-            where email = :email
-        """), {'email': requests['email']}).fetchone()
+        user = get_user_id_password(requests['email'])
 
         if user and bcrypt.checkpw(requests['password'].encode('UTF-8'), user['hashed_password'].encode('UTF-8')):
             user_id = user['id']
@@ -124,9 +151,11 @@ def create_app(test_config = None):
 
 
     @app.route('/tweet', methods = ['POST'])
+    @login_required
     def tweet():
         new_tweet = request.json
-        
+        new_tweet['id'] = g.user_id
+
         if not get_user(new_tweet['id']):
             return '없는 유저입니다.', 400
 
@@ -142,12 +171,13 @@ def create_app(test_config = None):
     def timeline(user_id):
 
         timeline = get_timeline(user_id)
-
         return jsonify(timeline)
 
     @app.route('/follow', methods = ['POST'])
+    @login_required
     def follow():
         requests = request.json
+        requests['id'] = g.user_id
 
         if not get_user(requests['id']) or not get_user(requests['follow']):
             return '없는 유저입니다.' , 400
@@ -157,8 +187,10 @@ def create_app(test_config = None):
         return '', 200
     
     @app.route('/unfollow', methods = ['POST'])
+    @login_required
     def unfollow():
         requests = request.json
+        requests['id'] = g.user_id
 
         if not get_user(requests['id']) or not get_user(requests['unfollow']):
             return '없는 유저입니다.' , 400
