@@ -1,4 +1,4 @@
-from app import create_app
+from api.app_old import create_app
 import pytest
 import config
 from sqlalchemy import create_engine, text

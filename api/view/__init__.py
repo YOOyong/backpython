@@ -108,7 +108,7 @@ def create_endpoints(app, services):
     
     @app.route('/timeline/<int:user_id>', methods = ['GET'])
     def timeline(user_id):
-        timeline = tweet_service.get_timeline(user_id)
+        timeline = tweet_service.timeline(user_id)
 
         return jsonify({
             'user_id' : user_id,
@@ -119,7 +119,7 @@ def create_endpoints(app, services):
     @app.route('/timeline', methods = ['GET'])
     @login_required
     def user_timeline():
-        timeline = tweet_service.get_user_timeline(g.user_id)
+        timeline = tweet_service.timeline(g.user_id)
 
         return jsonify({
             'user_id' : g.user_id,

@@ -16,6 +16,13 @@ class UserService:
 
         return new_user_id
     
+    def get_user(self, user_id):
+        return self.user_dao.get_user_by_user_id(user_id)
+
+    def get_user_id_and_password(self, email):
+        return self.user_dao.get_user_id_and_password(email)
+
+    
     def login(self, credential):
         email = credential['email']
         password = credential['password']
